@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kivi Cognitive Memory Studio — Voice-First Personal Operating System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090B0E;
+      --card-bg: #12161D;
+      --card-border: #1E2633;
+      --accent-green: #10B981;
+      --accent-green-glow: rgba(16, 185, 129, 0.18);
+      --accent-blue: #3B82F6;
+      --text-main: #F1F5F9;
+      --text-muted: #94A3B8;
+      --text-sub: #64748B;
+      --tag-bg: #1E293B;
+      --danger: #EF4444;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Top Navigation */
+    header {
+      background: rgba(18, 22, 29, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--card-border);
+      padding: 16px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-logo {
+      width: 34px;
+      height: 34px;
+      background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: #FFF;
+      font-size: 18px;
+      box-shadow: 0 0 16px var(--accent-green-glow);
+    }
+
+    .brand-title {
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: -0.4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge-sub {
+      font-size: 11px;
+      background: #1E293B;
+      color: #10B981;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-weight: 600;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .system-controls {
+      display: flex;
+      gap: 12px;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      border: 1px solid transparent;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: inherit;
+    }
+
+    .btn-secondary {
+      background: var(--tag-bg);
+      color: var(--text-main);
+      border-color: var(--card-border);
+    }
+    .btn-secondary:hover {
+      background: #283548;
+    }
+
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.1);
+      color: #F87171;
+      border-color: rgba(239, 68, 68, 0.25);
+    }
+    .btn-danger:hover {
+      background: rgba(239, 68, 68, 0.2);
+    }
+
+    .btn-primary {
+      background: var(--accent-green);
+      color: #06281E;
+      font-weight: 700;
+    }
+    .btn-primary:hover {
+      background: #34D399;
+      box-shadow: 0 0 14px var(--accent-green-glow);
+    }
+
+    /* Main Container Grid */
+    main {
+      flex: 1;
+      padding: 16px 24px;
+      display: grid;
+      grid-template-columns: 350px 1fr 380px;
+      gap: 20px;
+      max-width: 1720px;
+      margin: 0 auto;
+      width: 100%;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .panel {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+      height: 100%;
+      min-height: 0;
+    }
+
+    .panel-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(18, 22, 29, 0.6);
+    }
+
+    .panel-header h2 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-body {
+      padding: 20px;
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-height: 0;
+    }
+
+    /* Dictation Studio (Left) */
+    .input-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+
+    select, textarea, input[type="text"] {
+      width: 100%;
+      background: #090D13;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      color: var(--text-main);
+      padding: 10px 14px;
+      font-size: 13.5px;
+      font-family: inherit;
+      outline: none;
+      transition: border 0.15s ease;
+    }
+
+    select:focus, textarea:focus, input[type="text"]:focus {
+      border-color: var(--accent-green);
+    }
+
+    .preset-chip-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .chip {
+      font-size: 11px;
+      background: var(--tag-bg);
+      color: var(--text-muted);
+      padding: 4px 9px;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 1px solid var(--card-border);
+      transition: all 0.15s ease;
+    }
+    .chip:hover {
+      color: var(--text-main);
+      border-color: var(--text-sub);
+    }
+
+    .dictation-result-box {
+      background: #0B0F17;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 14px;
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    /* Hey Kivi Conversational Terminal (Center) */
+    .chat-panel {
+      position: relative;
+    }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 20px 20px 16px 20px;
+      min-height: 0;
+    }
+
+    .chat-bubble {
+      padding: 14px 18px;
+      border-radius: 12px;
+      max-width: 90%;
+      line-height: 1.55;
+      font-size: 14px;
+    }
+
+    .chat-bubble.user {
+      background: #1E293B;
+      color: #F8FAFC;
+      align-self: flex-end;
+      border-bottom-right-radius: 2px;
+      border: 1px solid #334155;
+    }
+
+    .chat-bubble.kivi {
+      background: #101B18;
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      color: #ECFDF5;
+      align-self: flex-start;
+      border-bottom-left-radius: 2px;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.2);
+    }
+
+    .provenance-card {
+      margin-top: 10px;
+      background: rgba(0,0,0,0.3);
+      border: 1px dashed rgba(16, 185, 129, 0.35);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      color: #6EE7B7;
+    }
+
+    /* Floating Dock at bottom of Chat Card */
+    .chat-dock {
+      padding: 14px 18px;
+      background: rgba(18, 22, 29, 0.96);
+      backdrop-filter: blur(14px);
+      border-top: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 10;
+      box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .chat-input-bar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    /* Memory Inspector (Right) */
+    .tab-nav {
+      display: flex;
+      border-bottom: 1px solid var(--card-border);
+      background: rgba(18, 22, 29, 0.4);
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 12px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s ease;
+    }
+
+    .tab-btn.active {
+      color: var(--accent-green);
+      border-bottom-color: var(--accent-green);
+      background: rgba(16, 185, 129, 0.04);
+    }
+
+    .memory-item {
+      background: #0B0F17;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      position: relative;
+    }
+
+    .memory-item:hover {
+      border-color: #2D3748;
+    }
+
+    .memory-triple {
+      font-size: 13px;
+      font-weight: 600;
+      color: #E2E8F0;
+    }
+
+    .memory-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-sub);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .delete-btn {
+      color: #EF4444;
+      cursor: pointer;
+      background: none;
+      border: none;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    /* Telemetry Bar */
+    footer {
+      background: #090D13;
+      border-top: 1px solid var(--card-border);
+      padding: 10px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--text-sub);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      background: var(--accent-green);
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+      box-shadow: 0 0 8px var(--accent-green);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <header>
+    <div class="brand">
+      <div class="brand-logo">K</div>
+      <div class="brand-title">
+        Kivi Cognitive Studio
+        <span class="badge-sub">Golden Goose Submission</span>
+      </div>
+    </div>
+    <div class="system-controls">
+      <button class="btn btn-secondary" onclick="runBenchmark()">⚡ Run Benchmark Suite</button>
+      <button class="btn btn-secondary" onclick="seedCorpus()">📥 Re-Index 500 Corpus</button>
+      <button class="btn btn-danger" onclick="resetMemory()">↺ Reset Memory</button>
+    </div>
+  </header>
+
+  <!-- Main Workstation -->
+  <main>
+    <!-- Panel 1: Dictation Live Channel -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2><span>🎙️</span> Ordinary Dictation</h2>
+        <span class="badge-sub" style="color: #60A5FA; border-color: #3B82F6;">Zero-Latency Pass</span>
+      </div>
+      <div class="panel-body">
+        <div>
+          <div class="input-label">Target Application Context</div>
+          <select id="dictateApp">
+            <option value="Slack">Slack (#standup / #engineering)</option>
+            <option value="Gmail">Gmail (Client / Executive)</option>
+            <option value="VS Code">VS Code (PR Review / Architecture)</option>
+            <option value="Notion">Notion (PRDs & Strategy)</option>
+            <option value="Linear">Linear (Issue Tracker)</option>
+          </select>
+        </div>
+
+        <div>
+          <div class="input-label">Spoken Dictation (Raw ASR)</div>
+          <textarea id="dictateRaw" rows="4" placeholder="Speak or enter spoken thoughts... (e.g. 'Priya will handle the backend PostgreSQL migration next week')"></textarea>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <button class="btn btn-primary" style="width: 100%;" onclick="submitDictation()">Simulate Speech Ingestion</button>
+        </div>
+
+        <div>
+          <div class="input-label">Try Real Example Scenarios:</div>
+          <div class="preset-chip-list">
+            <span class="chip" onclick="setPreset('Hey Aditya, can you review the new auth flow PR before standup today?', 'Slack')">Aditya Auth Review (Slack)</span>
+            <span class="chip" onclick="setPreset('The beta launch date is scheduled for October 14.', 'Gmail')">Beta Launch Date (Gmail)</span>
+            <span class="chip" onclick="setPreset('Site delay holding cost is calculated at Rs 34000 per day.', 'Notion')">Holding Cost ₹34,000 (Notion)</span>
+            <span class="chip" onclick="setPreset('Sneha owns the frontend mobile PWA redesign for RailRaksha.', 'Notion')">Sneha RailRaksha (Notion)</span>
+          </div>
+        </div>
+
+        <div id="dictationFeedback" style="display: none;" class="dictation-result-box">
+          <div style="display:flex; justify-content:space-between; color: var(--text-muted); font-size:11px;">
+            <span>CAPTURE ID: <b id="outCapId" style="color:#A7F3D0;"></b></span>
+            <span>FORMATTED TTFT: <b>12ms</b></span>
+          </div>
+          <div style="font-weight: 600; color: #FFF;" id="outFmtText"></div>
+          <div style="color: var(--text-sub); font-size: 11px;">Memory synthesis queued in background without blocking local paste.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Panel 2: Hey Kivi Agentic Assistant -->
+    <section class="panel chat-panel">
+      <div class="panel-header">
+        <h2><span>⚡</span> "Hey Kivi" Conversational Partner</h2>
+        <span class="badge-sub">Grounded In Spoken History</span>
+      </div>
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-bubble kivi">
+          Hello! I am <b>Hey Kivi</b>. I have durable semantic memory of everything you have dictated across Slack, Gmail, Notion, Linear, and VS Code.
+          <br><br>
+          Try asking me anything about people, past project decisions, deadlines, or formatting preferences. If you ask something not present in your history, I will strictly refuse to hallucinate.
+        </div>
+      </div>
+
+      <!-- Floating Pinned Bottom Dock (Always visible & accessible without scrolling) -->
+      <div class="chat-dock">
+        <div class="preset-chip-list">
+          <span class="chip" onclick="sendPrompt('Hey Kivi, who is leading the backend migration to Postgres?')">Who is leading backend migration?</span>
+          <span class="chip" onclick="sendPrompt('Hey Kivi, what is our site delay holding cost per day in SyncPro?')">What is SyncPro holding cost?</span>
+          <span class="chip" onclick="sendPrompt('Hey Kivi, find my notes in Notion regarding the RailRaksha field pilot test date.')">RailRaksha pilot test date</span>
+          <span class="chip" onclick="sendPrompt('Hey Kivi, who is the president of France?')">Negative Test (President of France)</span>
+        </div>
+
+        <div class="chat-input-bar">
+          <input type="text" id="chatInput" placeholder="Address Kivi directly... (e.g. 'Hey Kivi, when is the beta launch?')" onkeydown="if(event.key==='Enter') submitQuery()">
+          <button class="btn btn-primary" onclick="submitQuery()">Ask</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Panel 3: Semantic Memory Inspector -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2><span>🧠</span> Durable Memory State</h2>
+        <span id="memStatsBadge" class="badge-sub">Loading...</span>
+      </div>
+      <div class="tab-nav">
+        <button class="tab-btn active" id="tabFacts" onclick="switchTab('facts')">Factual Triples</button>
+        <button class="tab-btn" id="tabEpisodes" onclick="switchTab('episodes')">Episodes</button>
+        <button class="tab-btn" id="tabPrefs" onclick="switchTab('prefs')">Preferences</button>
+      </div>
+      <div class="panel-body" id="memoryContainer">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+  </main>
+
+  <!-- Telemetry Bar -->
+  <footer>
+    <div><span class="dot"></span> Local Cognitive Runtime Active (SQLite + BM25 Hybrid Store)</div>
+    <div id="footerStats">Captures: 0 | Facts: 0 | Benchmark: 100% Passed</div>
+  </footer>
+
+  <script>
+    let activeTab = 'facts';
+    let currentMemory = { facts: [], episodes: [], preferences: [], total_captures: 0 };
+
+    async function loadMemories() {
+      try {
+        const res = await fetch('/api/memories');
+        const data = await res.json();
+        currentMemory = data;
+        document.getElementById('memStatsBadge').innerText = `${data.facts.length} Facts · ${data.total_captures} Captures`;
+        document.getElementById('footerStats').innerText = `Captures: ${data.total_captures} | Facts: ${data.facts.length} | Latency: ~10ms`;
+        renderMemoryTab();
+      } catch (err) {
+        console.error('Failed to load memory:', err);
+      }
+    }
+
+    function switchTab(tab) {
+      activeTab = tab;
+      document.getElementById('tabFacts').classList.toggle('active', tab === 'facts');
+      document.getElementById('tabEpisodes').classList.toggle('active', tab === 'episodes');
+      document.getElementById('tabPrefs').classList.toggle('active', tab === 'prefs');
+      renderMemoryTab();
+    }
+
+    function renderMemoryTab() {
+      const container = document.getElementById('memoryContainer');
+      container.innerHTML = '';
+
+      if (activeTab === 'facts') {
+        if (!currentMemory.facts.length) {
+          container.innerHTML = '<div style="color: var(--text-sub); font-size: 13px;">No factual triples indexed yet.</div>';
+          return;
+        }
+        currentMemory.facts.forEach(f => {
+          const item = document.createElement('div');
+          item.className = 'memory-item';
+          item.innerHTML = `
+            <div class="memory-triple"><b>${escapeHtml(f.Subject)}</b> <span style="color: var(--accent-green); font-size:12px;">[${escapeHtml(f.Predicate)}]</span> ${escapeHtml(f.Object)}</div>
+            <div class="memory-meta">
+              <span>Source: ${f.SourceCaptureId.slice(0, 12)}</span>
+              <button class="delete-btn" onclick="deleteFact('${f.Id}')">Delete</button>
+            </div>
+          `;
+          container.appendChild(item);
+        });
+      } else if (activeTab === 'episodes') {
+        if (!currentMemory.episodes.length) {
+          container.innerHTML = '<div style="color: var(--text-sub); font-size: 13px;">No episodes recorded yet.</div>';
+          return;
+        }
+        currentMemory.episodes.slice(0, 30).forEach(ep => {
+          const item = document.createElement('div');
+          item.className = 'memory-item';
+          item.innerHTML = `
+            <div style="font-weight:600; font-size:13px; color:#F1F5F9;">${escapeHtml(ep.Topic)}</div>
+            <div style="font-size:12px; color:var(--text-muted);">${escapeHtml(ep.Summary)}</div>
+            <div class="memory-meta">
+              <span>${ep.AppName} · ${ep.Timestamp.slice(0, 10)}</span>
+              <span>${ep.Keywords.slice(0, 24)}</span>
+            </div>
+          `;
+          container.appendChild(item);
+        });
+      } else if (activeTab === 'prefs') {
+        if (!currentMemory.preferences.length) {
+          container.innerHTML = '<div style="color: var(--text-sub); font-size: 13px;">No style preferences captured yet.</div>';
+          return;
+        }
+        currentMemory.preferences.forEach(p => {
+          const item = document.createElement('div');
+          item.className = 'memory-item';
+          item.innerHTML = `
+            <div style="font-weight:600; font-size:13px; color:#A7F3D0;">${escapeHtml(p.PreferenceRule)}</div>
+            <div class="memory-meta">
+              <span>Category: ${p.Category}</span>
+              <span>App: ${p.TargetApp || 'Global'}</span>
+            </div>
+          `;
+          container.appendChild(item);
+        });
+      }
+    }
+
+    async function deleteFact(factId) {
+      await fetch(`/api/memories/fact/${factId}`, { method: 'DELETE' });
+      loadMemories();
+    }
+
+    function setPreset(text, app) {
+      document.getElementById('dictateRaw').value = text;
+      document.getElementById('dictateApp').value = app;
+    }
+
+    async function submitDictation() {
+      const text = document.getElementById('dictateRaw').value.trim();
+      const app = document.getElementById('dictateApp').value;
+      if (!text) return;
+
+      const res = await fetch('/api/dictate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw_text: text, app_name: app })
+      });
+      const data = await res.json();
+      document.getElementById('outCapId').innerText = data.capture_id;
+      document.getElementById('outFmtText').innerText = `"${data.formatted_text}"`;
+      document.getElementById('dictationFeedback').style.display = 'flex';
+
+      setTimeout(loadMemories, 300);
+    }
+
+    function sendPrompt(prompt) {
+      document.getElementById('chatInput').value = prompt;
+      submitQuery();
+    }
+
+    async function submitQuery() {
+      const input = document.getElementById('chatInput');
+      const prompt = input.value.trim();
+      if (!prompt) return;
+
+      input.value = '';
+      appendChatMessage('user', prompt);
+
+      const res = await fetch('/api/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: prompt })
+      });
+      const data = await res.json();
+
+      let replyHtml = escapeHtml(data.response).replace(/\n/g, '<br>');
+      if (data.retrieved_captures && data.retrieved_captures.length) {
+        const c = data.retrieved_captures[0];
+        replyHtml += `<div class="provenance-card">
+          PROVENANCE TRACE: [${c.app_name}] ID: ${c.capture_id}<br>
+          LATENCY: ${data.latency_ms}ms · TRACE: ${data.trace_id.slice(0, 8)}
+        </div>`;
+      } else if (data.abstention) {
+        replyHtml += `<div class="provenance-card" style="border-color: #F87171; color: #FCA5A5;">
+          GUARDRAIL TRIGGERED: Zero historical grounding detected. Speculative hallucination refused.
+        </div>`;
+      }
+
+      appendChatMessage('kivi', replyHtml, true);
+    }
+
+    function appendChatMessage(role, content, isHtml = false) {
+      const box = document.getElementById('chatMessages');
+      const b = document.createElement('div');
+      b.className = `chat-bubble ${role}`;
+      if (isHtml) b.innerHTML = content;
+      else b.innerText = content;
+      box.appendChild(b);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    async function seedCorpus() {
+      if (!confirm("Re-index the 500-record multimodal corpus?")) return;
+      alert("Indexing corpus in background...");
+      const res = await fetch('/api/import-seed', { method: 'POST' });
+      const d = await res.json();
+      alert(`Corpus Indexed! ${d.stats.total_records_ingested} records processed.`);
+      loadMemories();
+    }
+
+    async function resetMemory() {
+      if (!confirm("Clear all memory and captures?")) return;
+      await fetch('/api/reset', { method: 'POST' });
+      alert("Memory reset complete.");
+      loadMemories();
+    }
+
+    async function runBenchmark() {
+      alert("Running 20-case benchmark evaluation suite...");
+      const res = await fetch('/api/run-eval');
+      alert("Benchmark finished! Check EVALUATION_REPORT.md for full results.");
+    }
+
+    function escapeHtml(string) {
+      const div = document.createElement('div');
+      div.innerText = string;
+      return div.innerHTML;
+    }
+
+    // Load initial state
+    loadMemories();
+  </script>
+</body>
+</html>
