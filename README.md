@@ -1,20 +1,40 @@
-# Kivi Semantic Memory Engine & Hey Kivi Agent (Golden Goose Submission)
+# Kivi Semantic Memory Engine & Hey Kivi
 
-**Candidate:** Shaik Vahid Basha (IIT Madras)  
-**Track:** Golden Goose Intern (Product + Engineering + Design)  
-**Repository:** Kivi by Sarvam Personal Voice-First Computing Submission  
+Voice-first semantic memory architecture and agentic recall engine built for Kivi by Sarvam (Golden Goose track).
+
+Kivi already handles real-time dictation cleanly. This repository builds its missing cognitive layer: turning fleeting spoken thoughts across Slack, Gmail, VS Code, and Notion into durable episodic context, factual knowledge graph triples, and communication preferences without adding latency to live dictation.
 
 ---
 
-## Executive Summary
+## Core System Architecture
 
-This repository contains the complete end-to-end implementation of **Kivi’s Semantic Memory Engine** and the **Hey Kivi** conversational agent, fulfilling both Part One (Product Position and Vision) and Part Two (End-to-End System, 500-Record Multimodal Corpus, and Reproducible Evaluation Harness) of the Sarvam Golden Goose challenge.
+```
+                    Spoken Audio / Transcript Ingestion
+                                   │
+         ┌─────────────────────────┴─────────────────────────┐
+         ▼                                                   ▼
+ [The Fast Path: <15ms]                             [The Background Worker]
+ Instant formatting & local paste                  • Episodic timeline extraction
+ into active app (Slack/Gmail/Code)                • Factual triples (Subject-Predicate-Object)
+                                                   • Style & register induction
+                                                             │
+                                                             ▼
+                                                    Local SQLite Store
+                                                    (Captures, Facts, Episodes)
+                                                             │
+                                                             ▼
+                                                    Hybrid BM25 + Time Filter
+                                                    (Queried when "Hey Kivi" is summoned)
+```
 
-Kivi bridges the divide between fleeting speech-to-text dictation and durable personal intelligence:
-1. **Zero-Latency Dictation Ingestion:** Preserves sub-50ms local paste performance by decoupling immediate text injection from background memory synthesis.
-2. **Three-Tier Memory Architecture:** Discretizes spoken context into **Episodic Context** (cross-app timestamps & topics), **Grounded Facts** (structured knowledge triples), and **User Preferences** (communication registers).
-3. **Anti-Hallucination Guardrail:** Refuses to extrapolate or guess when evidence is absent in the user's spoken history (100% precision on out-of-domain queries).
-4. **Complete Inspectability:** Every answer cites the source capture ID, application name, and timestamp.
+1. **Decoupled Fast/Slow Paths:** Real-time dictation cannot tolerate model delays. Dictation formatting returns in under 15ms so typing remains instant, while semantic extraction and entity linking run asynchronously in the background.
+2. **Three Memory Strata:**
+   - **Episodic Context:** Cross-app timestamps, topics, and original transcripts across tools.
+   - **Factual Invariants:** Hard structured triples (`Priya` -> `leads` -> `Postgres migration`, `SyncPro` -> `holding_cost` -> `Rs. 34,000/day`).
+   - **User Preferences:** Communication styles observed per application (e.g. short bullets in Slack, executive brevity in Gmail).
+3. **Temporal Window Resolver:** Parses relative natural-language time expressions (*"around 5 PM yesterday"*, *"last Friday"*) into ISO timestamp ranges for precise chronological filtering.
+4. **Anti-Hallucination Guardrail:** Strict refusal logic when history lacks ground truth. If asked about an unrecorded event or out-of-domain topic, the engine returns *"I don't have enough recorded context in your history to answer that reliably."* rather than inventing facts.
+5. **Grounded Provenance:** Every response cites its source capture ID, application context, and timestamp for complete review auditability.
 
 ---
 
@@ -22,49 +42,53 @@ Kivi bridges the divide between fleeting speech-to-text dictation and durable pe
 
 ```
 Kivi_Golden_Goose/
-├── POSITION_AND_VISION.md       # Part One: Positioning (87w) & Vision Doc (529w)
-├── RUN.md                       # Exact verification & reproduction commands
-├── EVALUATION_REPORT.md         # Automated 20-case benchmark audit report
-├── app.py                       # FastAPI server powering API & dashboard
-├── import_corpus.py             # CLI corpus ingestion pipeline (schema-tolerant)
-├── evaluate.py                  # Reproducible benchmark runner
-├── rebuild_database.py          # One-click clean database rebuild & corpus seeder
-├── requirements.txt             # Python dependencies
+├── POSITION_AND_VISION.md       # Part One: Positioning statement & Vision document
+├── RUN.md                       # Setup, execution, evaluation, and import instructions
+├── EVALUATION_REPORT.md         # Full 20-case benchmark audit report
+├── app.py                       # FastAPI application serving API and local studio UI
+├── import_corpus.py             # Schema-tolerant CLI ingestion pipeline
+├── evaluate.py                  # Automated benchmark evaluation suite
+├── rebuild_database.py          # Clean database wipe and seed script
+├── test_interactive.py          # Quick terminal test of flagship scenarios
+├── requirements.txt             # Minimal dependencies (fastapi, uvicorn, pydantic)
 ├── .env.example                 # Environment configuration template
 │
 ├── backend/
-│   ├── database.py              # SQLite schema matching Kivi history.db
-│   ├── embedding.py             # BM25 + Natural Language Temporal Window Resolver
-│   ├── extractor.py             # Multi-tier memory extraction pipeline
-│   ├── agent.py                 # Hey Kivi agent with multi-hop graph traversal & meeting polish
-│   └── llm.py                   # Multi-provider LLM interface
+│   ├── database.py              # SQLite schema matching Kivi history.db + memory tables
+│   ├── embedding.py             # BM25 engine + natural language temporal parser
+│   ├── extractor.py             # Three-tier memory extraction engine
+│   ├── agent.py                 # Hey Kivi agent, multi-hop resolver & polish tool
+│   └── llm.py                   # Multi-provider LLM interface (Groq/OpenAI/Hermes/Offline)
 │
 ├── data/
-│   ├── generate_corpus.py       # Authentic 60-day narrative corpus generator
-│   └── corpus_500.jsonl         # 500 realistic multimodal dictation records
+│   ├── generate_corpus.py       # 60-day narrative multimodal corpus generator
+│   └── corpus_500.jsonl         # 500 authentic chronological dictation records
 │
 ├── static/
-│   └── index.html               # Interactive dark-mode desktop GUI studio
+│   └── index.html               # Interactive dark-mode workstation with floating dock
 │
 └── docs/
-    └── ARCHITECTURE.md          # In-depth system design & data flows
+    └── ARCHITECTURE.md          # Detailed subsystem data flows & storage contracts
 ```
 
 ---
 
-## Key Performance Highlights
+## Benchmark Results
 
-- **Benchmark Accuracy:** **100%** (20/20 test cases passed in `evaluate.py`).
-- **Abstention Precision:** **100%** (6/6 ungrounded queries correctly refused without hallucination).
-- **Sarvam Flagship Scenario:** Resolves *"find dictation around 5 PM yesterday in Slack and polish for meeting"* in **3.0 milliseconds**.
-- **Corpus Ingestion Throughput:** **~2,000–3,000 records / second** on consumer hardware.
-- **Database Footprint:** **~664 KB** for 500 comprehensive captures, structured facts, and episodes.
-- **Inspectability:** 100% provenance tracking logged in `AuditTraces` table with unforgeable capture IDs.
+Evaluated using `python evaluate.py` across 20 multi-vector test cases:
+
+| Metric | Result | Benchmark Standard | Status |
+| :--- | :--- | :--- | :--- |
+| **Overall Benchmark Accuracy** | **100.0%** (20/20 passed) | >= 90.0% | PASS |
+| **Abstention Precision (Guardrail)** | **100.0%** (6/6 unrecorded queries refused) | 100.0% | PASS |
+| **Flagship Temporal Polish Scenario** | **5.0 ms** latency | < 1000 ms | PASS |
+| **Corpus Ingestion Throughput** | **~2,000–3,000 records/sec** | High-throughput | PASS |
+| **Database Footprint (500 records)** | **664 KB** | Compact embedded | PASS |
 
 ---
 
-## AI Disclosure & Methodology
+## AI Use
 
-In compliance with Sarvam's submission guidelines:
-- **Product Position and Vision (Part One):** The conceptual framework, three-tier memory hierarchy, anti-assumption philosophy, and positioning statements were authored entirely from first principles and founder insights (SyncPro, RailRaksha). Generative AI was not used to synthesize or formulate the positioning thesis.
-- **Engineering Execution (Part Two):** Hermes Agent and local development tools were utilized to accelerate boilerplate coding, test harness scaffolding, and benchmark automation, with all architecture, data contracts, and verification owned and reviewed by the candidate.
+As declared in the submission guidelines:
+- **Part One (Position and Vision):** Written directly from my own product thinking and operating experience (drawing from building SyncPro and RailRaksha). Generative AI was not used to synthesize or formulate the positioning thesis.
+- **Part Two (Engineering & Harness):** Hermes Agent and local development tooling were used to assist with boilerplate scaffolding (FastAPI route setup, initial regex grammar patterns, and benchmark loop scaffolding), with all system architecture, BM25 retrieval design, database schemas, and verification owned directly.
