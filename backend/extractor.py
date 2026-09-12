@@ -1,14 +1,42 @@
 import re
 import uuid
 import json
+import hashlib
 from datetime import datetime
 from typing import List, Dict, Any, Tuple, Optional
 from backend.llm import LLMClient
 
+# Comprehensive linguistic modality guardrail
+UNCERTAIN_RE = re.compile(
+    r"\b(?:hope|wish|plan(?:ning)? to|intend(?:ing)? to|expect(?:ing)? to|"
+    r"maybe|might|could|should|would|possibly|probably|likely|i think|"
+    r"i guess|tentative|provisional|target(?:ing)?|if\b|unless|trying to|"
+    r"aim(?:ing)? to|considering|doubtful)\b",
+    re.IGNORECASE
+)
+NEGATED_RE = re.compile(
+    r"\b(?:not|never|no longer|isn't|aren't|wasn't|didn't|don't|cannot|won't)\b",
+    re.IGNORECASE
+)
+QUESTION_RE = re.compile(
+    r"^\s*(?:who|what|when|where|why|how|is|are|did|does|can|could|should)\b|\?\s*$",
+    re.IGNORECASE
+)
+
+def is_asserted_claim(text: str) -> bool:
+    """Strict modality guardrail: Rejects questions, negations, and uncertain/aspirational text."""
+    if QUESTION_RE.search(text):
+        return False
+    if NEGATED_RE.search(text):
+        return False
+    if UNCERTAIN_RE.search(text):
+        return False
+    return True
+
 class MemoryExtractor:
     """
-    Extracts Episodic summaries, Factual triples, and User Preferences
-    from raw and formatted transcripts with absolute provenance.
+    Three-tier memory extractor with strict modality filtering and anti-assumption guardrails.
+    Rejects aspirations, questions, and negations from entering verified factual memory.
     """
     def __init__(self, llm_client: Optional[LLMClient] = None):
         self.llm = llm_client or LLMClient()
@@ -19,70 +47,72 @@ class MemoryExtractor:
         preferences = []
         episodes = []
 
-        # 1. Fact Extraction: Assignments & Ownership
-        assign_patterns = [
-            r'(?P<subj>[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)\s+(?:is\s+handling|is\s+reviewing|will\s+review|is\s+leading|owns|is\s+working\s+on|is\s+managing|is\s+spearheading)\s+(?P<obj>[^,\.\;]+)',
-            r'ask\s+(?P<subj>[A-Z][a-zA-Z]+)\s+to\s+(?P<pred>review|check|deploy|update|inspect|test)\s+(?P<obj>[^,\.\;]+)',
-            r'(?P<obj>[^,\.\;]+)\s+(?:is\s+assigned\s+to|will\s+be\s+done\s+by)\s+(?P<subj>[A-Z][a-zA-Z]+)'
-        ]
-        for p in assign_patterns:
-            for m in re.finditer(p, text, re.IGNORECASE):
-                d = m.groupdict()
-                subj = d.get('subj', '').strip()
-                obj = d.get('obj', '').strip()
-                pred = d.get('pred', 'responsible_for').strip()
-                if subj and obj and len(subj) > 1 and len(obj) > 2:
-                    facts.append({
-                        "id": str(uuid.uuid4()),
-                        "subject": subj.title(),
-                        "predicate": pred.lower(),
-                        "object": obj,
-                        "confidence": 0.95,
-                        "capture_id": capture_id,
-                        "created_at": timestamp
-                    })
+        # Only extract durable factual memories if the statement is an asserted fact
+        if is_asserted_claim(text):
+            # 1. Fact Extraction: Assignments & Ownership
+            assign_patterns = [
+                r'(?P<subj>[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)\s+(?:is\s+handling|is\s+reviewing|will\s+review|is\s+leading|owns|is\s+working\s+on|is\s+managing|is\s+spearheading)\s+(?P<obj>[^,\.\;]+)',
+                r'ask\s+(?P<subj>[A-Z][a-zA-Z]+)\s+to\s+(?P<pred>review|check|deploy|update|inspect|test)\s+(?P<obj>[^,\.\;]+)',
+                r'(?P<obj>[^,\.\;]+)\s+(?:is\s+assigned\s+to|will\s+be\s+done\s+by)\s+(?P<subj>[A-Z][a-zA-Z]+)'
+            ]
+            for p in assign_patterns:
+                for m in re.finditer(p, text, re.IGNORECASE):
+                    d = m.groupdict()
+                    subj = d.get('subj', '').strip()
+                    obj = d.get('obj', '').strip()
+                    pred = d.get('pred', 'responsible_for').strip()
+                    if subj and obj and len(subj) > 1 and len(obj) > 2:
+                        facts.append({
+                            "id": str(uuid.uuid4()),
+                            "subject": subj.title(),
+                            "predicate": pred.lower(),
+                            "object": obj,
+                            "confidence": 0.95,
+                            "capture_id": capture_id,
+                            "created_at": timestamp
+                        })
 
-        # 2. Fact Extraction: Deadlines, Dates & Milestones
-        date_patterns = [
-            r'(?P<subj>[a-zA-Z0-9_\-\s]{3,35}?)\s+(?:is\s+scheduled\s+for|scheduled\s+for|deadline\s+is|due\s+date\s+is|launch\s+date\s+is|release\s+is)\s+(?P<obj>[A-Z][a-z]+(?:\s+\d{1,2})?|\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+|tomorrow|friday|monday|thursday|wednesday|next\s+week)',
-            r'(?:due\s+by|finish\s+by|ship\s+on|release\s+on)\s+(?P<obj>[A-Z][a-z]+(?:\s+\d{1,2})?|\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+|tomorrow|friday|thursday)',
-            r'(?P<subj>[a-zA-Z0-9_\-\s]{3,25}?)\s+meeting\s+(?:is\s+at|scheduled\s+for)\s+(?P<obj>\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)|tomorrow|\w+day)'
-        ]
-        for p in date_patterns:
-            for m in re.finditer(p, text, re.IGNORECASE):
-                d = m.groupdict()
-                subj = d.get('subj', 'Milestone').strip()
-                obj = d.get('obj', '').strip()
-                if obj and len(obj) >= 2:
-                    facts.append({
-                        "id": str(uuid.uuid4()),
-                        "subject": subj.strip().title(),
-                        "predicate": "scheduled_for",
-                        "object": obj,
-                        "confidence": 0.90,
-                        "capture_id": capture_id,
-                        "created_at": timestamp
-                    })
+            # 2. Fact Extraction: Deadlines, Dates & Milestones
+            date_patterns = [
+                r'(?P<subj>[a-zA-Z0-9_\-\s]{3,35}?)\s+(?:is\s+scheduled\s+for|scheduled\s+for|deadline\s+is|due\s+date\s+is|launch\s+date\s+is|release\s+is)\s+(?P<obj>[A-Z][a-z]+(?:\s+\d{1,2})?|\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+|tomorrow|friday|monday|thursday|wednesday|next\s+week)',
+                r'(?:due\s+by|finish\s+by|ship\s+on|release\s+on)\s+(?P<obj>[A-Z][a-z]+(?:\s+\d{1,2})?|\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+|tomorrow|friday|thursday)',
+                r'(?P<subj>[a-zA-Z0-9_\-\s]{3,25}?)\s+meeting\s+(?:is\s+at|scheduled\s+for)\s+(?P<obj>\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)|tomorrow|\w+day)'
+            ]
+            for p in date_patterns:
+                for m in re.finditer(p, text, re.IGNORECASE):
+                    d = m.groupdict()
+                    subj = d.get('subj', 'Milestone').strip()
+                    obj = d.get('obj', '').strip()
+                    if obj and len(obj) >= 2:
+                        facts.append({
+                            "id": str(uuid.uuid4()),
+                            "subject": subj.strip().title(),
+                            "predicate": "scheduled_for",
+                            "object": obj,
+                            "confidence": 0.90,
+                            "capture_id": capture_id,
+                            "created_at": timestamp
+                        })
 
-        # 3. Fact Extraction: Metrics, Quantities, Pricing & Invariants
-        metric_patterns = [
-            r'(?P<subj>[a-zA-Z0-9_\-\s]{3,35}?)\s+(?:is\s+calculated\s+at|is\s+finalized\s+at|is\s+measured\s+at|is\s+capped\s+at|achieved|tested\s+over|shows|equals|costs)\s+(?P<obj>(?:Rs\.?|INR|\$|₹)?\s*\d+(?:[\.,]\d+)?\s*(?:k|cr|lakh|ms|seconds|percent|%|users|per\s+day|/day|months|ratio|factor|setups|backtests|requests\s+per\s+second)?)'
-        ]
-        for p in metric_patterns:
-            for m in re.finditer(p, text, re.IGNORECASE):
-                d = m.groupdict()
-                subj = d.get('subj', '').strip()
-                obj = d.get('obj', '').strip()
-                if subj and obj and len(subj) > 2 and any(char.isdigit() for char in obj):
-                    facts.append({
-                        "id": str(uuid.uuid4()),
-                        "subject": subj.strip().title(),
-                        "predicate": "value_metric",
-                        "object": obj.strip(),
-                        "confidence": 0.90,
-                        "capture_id": capture_id,
-                        "created_at": timestamp
-                    })
+            # 3. Fact Extraction: Metrics, Quantities, Pricing & Invariants
+            metric_patterns = [
+                r'(?P<subj>[a-zA-Z0-9_\-\s]{3,35}?)\s+(?:is\s+calculated\s+at|is\s+finalized\s+at|is\s+measured\s+at|is\s+capped\s+at|achieved|tested\s+over|shows|equals|costs)\s+(?P<obj>(?:Rs\.?|INR|\$|₹)?\s*\d+(?:[\.,]\d+)?\s*(?:k|cr|lakh|ms|seconds|percent|%|users|per\s+day|/day|months|ratio|factor|setups|backtests|requests\s+per\s+second)?)'
+            ]
+            for p in metric_patterns:
+                for m in re.finditer(p, text, re.IGNORECASE):
+                    d = m.groupdict()
+                    subj = d.get('subj', '').strip()
+                    obj = d.get('obj', '').strip()
+                    if subj and obj and len(subj) > 2 and any(char.isdigit() for char in obj):
+                        facts.append({
+                            "id": str(uuid.uuid4()),
+                            "subject": subj.strip().title(),
+                            "predicate": "value_metric",
+                            "object": obj.strip(),
+                            "confidence": 0.90,
+                            "capture_id": capture_id,
+                            "created_at": timestamp
+                        })
 
         # 4. User Preference Extraction
         pref_patterns = [
@@ -108,7 +138,7 @@ class MemoryExtractor:
         if len(clean_summary) > 120:
             clean_summary = clean_summary[:117] + "..."
         
-        words = [w for w in re.findall(r'\b[A-Za-z]{3,}\b', text) if w.lower() not in {'this', 'that', 'with', 'from', 'have', 'what', 'your', 'about', 'just', 'will', 'then'}]
+        words = [w for w in re.findall(r'\b[A-Za-z0-9_\-\.]{3,}\b', text) if w.lower() not in {'this', 'that', 'with', 'from', 'have', 'what', 'your', 'about', 'just', 'will', 'then'}]
         topic = f"{app_name}: {' '.join(words[:4])}" if words else f"{app_name} Take"
         keywords = ", ".join(list(dict.fromkeys(words[:6])))
 
@@ -134,7 +164,7 @@ class MemoryExtractor:
 
         prompt = f"""You are Kivi's Semantic Memory Extractor.
 Extract durable factual memories, user preferences, and an episodic summary.
-ANTI-ASSUMPTION RULE: Extract ONLY explicitly stated facts. NEVER infer unsaid intentions.
+ANTI-ASSUMPTION RULE: Extract ONLY explicitly stated facts. NEVER infer unsaid intentions. Reject questions, aspirations (e.g. 'hope', 'might', 'plan to'), and negations from facts.
 
 Capture Metadata:
 - App: {app_name}

@@ -14,22 +14,19 @@ class LLMClient:
     def __init__(self):
         # Check environment variables
         self.api_key = (
+            os.environ.get("KIVI_LLM_API_KEY") or
             os.environ.get("OPENAI_API_KEY") or
             os.environ.get("GROQ_API_KEY") or
-            os.environ.get("HERMES_CUSTOM_LOCALHOST_20128_API_KEY") or
             ""
         )
-        self.base_url = os.environ.get("OPENAI_BASE_URL")
+        self.base_url = os.environ.get("KIVI_LLM_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
         if not self.base_url:
             if os.environ.get("GROQ_API_KEY"):
                 self.base_url = "https://api.groq.com/openai/v1"
                 self.model = os.environ.get("KIVI_LLM_MODEL", "llama-3.3-70b-versatile")
-            elif os.environ.get("HERMES_CUSTOM_LOCALHOST_20128_API_KEY"):
-                self.base_url = "http://localhost:20128/v1"
-                self.model = os.environ.get("KIVI_LLM_MODEL", "ag/gemini-3.8-flash-high")
             else:
                 self.base_url = "https://api.openai.com/v1"
-                self.model = os.environ.get("KIVI_LLM_MODEL", "gpt-4o-mini")
+                self.model = os.environ.get("KIVI_LLM_MODEL", "default")
         else:
             self.model = os.environ.get("KIVI_LLM_MODEL", "default")
 

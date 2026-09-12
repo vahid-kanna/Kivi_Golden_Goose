@@ -8,8 +8,11 @@ DB_PATH = os.environ.get("KIVI_DB_PATH", os.path.join(os.path.dirname(__file__),
 
 def get_connection():
     os.makedirs(os.path.dirname(os.path.abspath(DB_PATH)), exist_ok=True)
-    con = sqlite3.connect(DB_PATH, check_same_thread=False)
+    con = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30.0)
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA foreign_keys = ON;")
+    con.execute("PRAGMA journal_mode = WAL;")
+    con.execute("PRAGMA busy_timeout = 30000;")
     return con
 
 def init_db():

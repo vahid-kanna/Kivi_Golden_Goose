@@ -70,6 +70,11 @@ To run a quick interactive demonstration of the flagship use cases (temporal res
 python test_interactive.py
 ```
 
+To run the adversarial stress test suite verifying truth boundary, modality filtering, and zero hallucination leakage:
+```bash
+python test_adversarial.py
+```
+
 ---
 
 ### 6. Procedure for Importing Sarvam's Internal Review Corpus

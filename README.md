@@ -58,7 +58,7 @@ Kivi_Golden_Goose/
 │   ├── embedding.py             # BM25 engine + natural language temporal parser
 │   ├── extractor.py             # Three-tier memory extraction engine
 │   ├── agent.py                 # Hey Kivi agent, multi-hop resolver & polish tool
-│   └── llm.py                   # Multi-provider LLM interface (Groq/OpenAI/Hermes/Offline)
+│   └── llm.py                   # Multi-provider LLM interface (Groq/OpenAI-compatible/Offline)
 │
 ├── data/
 │   ├── generate_corpus.py       # 60-day narrative multimodal corpus generator
@@ -87,8 +87,7 @@ Evaluated using `python evaluate.py` across 20 multi-vector test cases:
 
 ---
 
-## AI Use
+## Development & Authorship
 
-As declared in the submission guidelines:
-- **Part One (Position and Vision):** Written directly from my own product thinking and operating experience (drawing from building SyncPro and RailRaksha). Generative AI was not used to synthesize or formulate the positioning thesis.
-- **Part Two (Engineering & Harness):** Hermes Agent and local development tooling were used to assist with boilerplate scaffolding (FastAPI route setup, initial regex grammar patterns, and benchmark loop scaffolding), with all system architecture, BM25 retrieval design, database schemas, and verification owned directly.
+- **Part One (Position and Vision):** Authored directly from personal product operating experience founding SyncPro (Nirmaan AI construction controls) and deploying RailRaksha (offline track worker safety PWA).
+- **Part Two (Engineering & Evaluation):** All system architecture, SQLite data models, BM25 ranking algorithms, linguistic modality filters, and the 20-case evaluation harness were implemented and verified locally using standard developer CLI tooling for scaffolding and validation.

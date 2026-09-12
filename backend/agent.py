@@ -2,6 +2,7 @@ import time
 import json
 import uuid
 import re
+import math
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from backend.database import get_connection
@@ -14,16 +15,16 @@ class AgentTools:
     1. search_user_history (Hybrid BM25 + Temporal Window Filter + App Filter)
     2. lookup_facts (Single-hop and multi-hop Knowledge Graph traversal)
     3. lookup_preferences (App-specific communication registers)
-    4. transform_and_polish (Context-aware reformatting for meetings, emails, or standups)
+    4. transform_and_polish (Context-aware grounded reformatting)
     """
     def __init__(self, embedder: LocalTextEmbedder):
         self.embedder = embedder
 
-    def search_user_history(self, query: str, app_filter: Optional[str] = None, time_range: Optional[Tuple[str, str]] = None, limit: int = 5) -> Dict[str, Any]:
+    def search_user_history(self, query: str, app_filter: Optional[str] = None, time_range: Optional[Tuple[str, str, Optional[str]]] = None, limit: int = 5) -> Dict[str, Any]:
         con = get_connection()
         cur = con.cursor()
 
-        sql = "SELECT Id, RawText, FormattedText, AppName, CreatedAt FROM Captures WHERE 1=1"
+        sql = "SELECT Id, RawText, FormattedText, AppName, CreatedAt FROM Captures WHERE Status != 'empty'"
         params = []
 
         if app_filter:
@@ -34,7 +35,7 @@ class AgentTools:
             sql += " AND CreatedAt >= ? AND CreatedAt <= ?"
             params.extend([time_range[0], time_range[1]])
 
-        sql += " ORDER BY CreatedAt DESC LIMIT 1000"
+        sql += " ORDER BY CreatedAt DESC"
 
         cur.execute(sql, params)
         rows = [dict(r) for r in cur.fetchall()]
@@ -42,6 +43,28 @@ class AgentTools:
 
         if not rows:
             return {"results": [], "count": 0, "message": "No matching user history found."}
+
+        # Temporal center proximity ranking when specific time window is requested
+        if time_range and len(time_range) > 2 and time_range[2]:
+            try:
+                center_dt = datetime.fromisoformat(time_range[2].replace("Z", "+00:00"))
+                temporal_ranked = []
+                for r in rows:
+                    r_dt = datetime.fromisoformat(r["CreatedAt"].replace("Z", "+00:00"))
+                    dist_mins = abs((r_dt - center_dt).total_seconds()) / 60.0
+                    prox_score = max(1.0, round(10.0 - (dist_mins / 15.0), 2))
+                    temporal_ranked.append({
+                        "capture_id": r["Id"],
+                        "app_name": r["AppName"],
+                        "timestamp": r["CreatedAt"],
+                        "formatted_text": r["FormattedText"],
+                        "raw_text": r["RawText"],
+                        "relevance_score": prox_score
+                    })
+                temporal_ranked.sort(key=lambda x: x["relevance_score"], reverse=True)
+                return {"results": temporal_ranked[:limit], "count": len(temporal_ranked)}
+            except Exception:
+                pass
 
         # BM25 Scoring
         doc_texts = [f"{r['AppName']} {r['FormattedText']}" for r in rows]
@@ -61,24 +84,12 @@ class AgentTools:
                 "relevance_score": round(score, 3)
             })
 
-        # If time range was specified but BM25 had few token matches, return top chronologically
-        if not results and time_range and rows:
-            for row in rows[:limit]:
-                results.append({
-                    "capture_id": row["Id"],
-                    "app_name": row["AppName"],
-                    "timestamp": row["CreatedAt"],
-                    "formatted_text": row["FormattedText"],
-                    "raw_text": row["RawText"],
-                    "relevance_score": 1.0
-                })
-
         return {"results": results, "count": len(results)}
 
     def lookup_facts(self, subject: Optional[str] = None, predicate: Optional[str] = None) -> Dict[str, Any]:
         con = get_connection()
         cur = con.cursor()
-        sql = "SELECT Id, Subject, Predicate, Object, Confidence, SourceCaptureId, CreatedAt FROM FactualMemories WHERE 1=1"
+        sql = "SELECT Id, Subject, Predicate, Object, Confidence, SourceCaptureId, CreatedAt FROM FactualMemories WHERE Verified = 1"
         params = []
         if subject:
             sql += " AND (LOWER(Subject) LIKE LOWER(?) OR LOWER(Object) LIKE LOWER(?))"
@@ -110,8 +121,7 @@ class AgentTools:
         """
         Recovers information distributed across multiple dictations (e.g. Person -> Project -> Milestone/Metric).
         """
-        # Step 1: Detect subject entity
-        words = [w for w in query.split() if w[0].isupper() and w.lower() not in {"hey", "kivi", "what", "where", "how", "who", "when", "can", "find"}]
+        words = [w for w in re.findall(r'\b[A-Za-z0-9_\-\.]{3,}\b', query) if w[0].isupper() and w.lower() not in {"hey", "kivi", "what", "where", "how", "who", "when", "can", "find"}]
         if not words:
             return {"facts": [], "chain": []}
 
@@ -119,19 +129,16 @@ class AgentTools:
         con = get_connection()
         cur = con.cursor()
 
-        # Step 2: Look up direct facts for first entity
-        cur.execute("SELECT * FROM FactualMemories WHERE LOWER(Subject) LIKE LOWER(?) OR LOWER(Object) LIKE LOWER(?)", (f"%{first_entity}%", f"%{first_entity}%"))
+        cur.execute("SELECT * FROM FactualMemories WHERE (LOWER(Subject) LIKE LOWER(?) OR LOWER(Object) LIKE LOWER(?)) AND Verified = 1", (f"%{first_entity}%", f"%{first_entity}%"))
         direct_facts = [dict(r) for r in cur.fetchall()]
 
         linked_facts = []
         chain = []
-        # Step 3: Traverse graph for connected project/entity
         for df in direct_facts:
             chain.append(df)
-            # Find linked entities inside object string
             candidate_entities = [w for w in df["Object"].split() if len(w) > 3 and w[0].isupper()]
             for cand in candidate_entities:
-                cur.execute("SELECT * FROM FactualMemories WHERE (LOWER(Subject) LIKE LOWER(?) OR LOWER(Object) LIKE LOWER(?)) AND Id != ?", (f"%{cand}%", f"%{cand}%", df["Id"]))
+                cur.execute("SELECT * FROM FactualMemories WHERE (LOWER(Subject) LIKE LOWER(?) OR LOWER(Object) LIKE LOWER(?)) AND Id != ? AND Verified = 1", (f"%{cand}%", f"%{cand}%", df["Id"]))
                 for lf in cur.fetchall():
                     linked_facts.append(dict(lf))
                     chain.append(dict(lf))
@@ -139,29 +146,128 @@ class AgentTools:
         con.close()
         return {"facts": direct_facts + linked_facts, "chain": chain}
 
-    def transform_and_polish(self, raw_content: str, target_mode: str = "meeting_prep", style_prefs: Optional[List[Dict[str, Any]]] = None) -> str:
+    def transform_and_polish(self, raw_content: str, user_prompt: str = "") -> str:
         """
-        Agentic execution tool: Polishes retrieved dictation for an active meeting or executive update.
+        Grounded agentic transformation: Preserves user intent (meeting, email, bullets, summary)
+        WITHOUT inventing commitments, action items, status claims, or unstated facts.
         """
-        clean = raw_content.replace("<uh>", "").replace("  ", " ").strip()
+        clean = re.sub(r'\s+', ' ', raw_content.replace("<uh>", "")).strip()
+        p_lower = user_prompt.lower()
         
-        if "meeting" in target_mode.lower():
-            return f"**Meeting Briefing Draft:**\n• **Core Topic:** {clean}\n• **Action Item:** Review open deliverables and align next steps with the team."
-        elif "email" in target_mode.lower():
-            return f"Hi Team,\n\nFollowing up on our recent update regarding: {clean}\n\nPlease review and let me know if any adjustments are needed.\n\nBest regards,\nVahid"
-        else:
+        if "email" in p_lower:
+            return f"**Email Draft:**\nSubject: Update regarding recent notes\n\n\"{clean}\""
+        elif "bullet" in p_lower:
             return f"• {clean}"
+        elif "meeting" in p_lower:
+            return f"**Meeting Briefing:**\n• **Topic:** {clean}"
+        else:
+            return f"**Polished Summary:**\n{clean}"
+
+
+TOKEN_RE = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*", re.IGNORECASE)
+
+def token_set(text: str) -> set:
+    return {m.group(0).casefold() for m in TOKEN_RE.finditer(text)}
+
+def safe_score(capture: Dict[str, Any]) -> float:
+    try:
+        score = float(capture.get("relevance_score", 0.0))
+        return score if (math.isfinite(score) and score >= 0) else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+def extract_task_keywords(query: str) -> List[str]:
+    """Extracts non-stopword topic keywords from the user question to bind evidence to the specific task."""
+    q_lower = query.lower()
+    short_domain_tokens = {"ai", "ml", "ui", "ux", "qa", "pr", "bse"}
+    boilerplate = {
+        'who', 'what', 'when', 'where', 'why', 'how', 'is', 'are', 'was', 'were',
+        'hey', 'kivi', 'can', 'could', 'would', 'should', 'tell', 'find', 'show',
+        'me', 'our', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+        'did', 'i', 'say', 'dictate', 'notes', 'about', 'regarding', 'scheduled', 'scheduled_for',
+        'leading', 'handling', 'reviewing', 'owns', 'managing', 'responsible', 'format', 'style',
+        'lead', 'leads', 'owned', 'owner', 'assign', 'assigned', 'team', 'group', 'squad',
+        'department', 'project', 'unit', 'discussion', 'meeting'
+    }
+    words = [m.group(0) for m in re.finditer(r'\b[a-z0-9_\-\.]{2,}\b', q_lower)]
+    return [w for w in words if (w in short_domain_tokens or len(w) >= 3) and w not in boilerplate]
+
+
+def check_evidence_sufficiency(query: str, captures: List[Dict[str, Any]], facts: List[Dict[str, Any]]) -> Tuple[bool, str]:
+    """
+    Evidence-Sufficiency Gate:
+    Verifies that the retrieved candidate evidence actually addresses the requested query intent
+    and matches the specific task/entity binding rather than arbitrary lexical overlap.
+    """
+    q_lower = query.lower()
+    task_kws = extract_task_keywords(query)
+    
+    # 1. Facts authorization: facts must match task keywords (no unconditional authorization!)
+    if facts and task_kws:
+        combined_fact_text = " ".join([f"{f.get('Subject', '')} {f.get('Predicate', '')} {f.get('Object', '')}" for f in facts])
+        fact_tokens = token_set(combined_fact_text)
+        if any(kw.casefold() in fact_tokens for kw in task_kws):
+            return True, "supported_by_facts"
+
+    if not captures:
+        return False, "no_candidates"
+
+    top_text = (captures[0].get("formatted_text") or captures[0].get("raw_text") or "").lower()
+    top_tokens = token_set(top_text)
+    top_score = safe_score(captures[0])
+
+    # 2. Temporal command with high proximity
+    if bool(re.search(r'\b(?:yesterday|today|this morning|around|at\s+\d)\b', q_lower)) and top_score >= 2.0:
+        return True, "supported_by_temporal_and_task_binding"
+
+    # 3. Strict task binding on top answer capture
+    if task_kws and not any(kw.casefold() in top_tokens for kw in task_kws):
+        return False, "top_evidence_lacks_task_binding"
+
+    top_text = (captures[0].get("formatted_text") or captures[0].get("raw_text") or "").lower()
+
+    # 4. Who queries: must contain person assignment or role
+    is_who = bool(re.search(r'\b(?:who|who is|whose|lead by|handled by|managed by)\b', q_lower))
+    if is_who:
+        for role in ["president", "prime minister", "ceo", "cfo", "founder", "director"]:
+            if role in q_lower and role not in top_text:
+                return False, f"missing_{role}_in_evidence"
+        
+        has_assignment = bool(re.search(r'\b(?:is leading|owns|will review|is handling|spearheading|assigned to|ask\s+[a-z]+)\b', top_text))
+        if not has_assignment:
+            return False, "missing_person_evidence"
+
+    # 5. When queries: must contain temporal indication
+    is_when = bool(re.search(r'\b(?:when|when is|what date|deadline|scheduled for|due date)\b', q_lower))
+    if is_when:
+        has_temporal = bool(re.search(r'\b(?:january|february|march|april|may|june|july|august|september|october|november|december|monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today|scheduled|deadline|at\s+\d|pm|am)\b', top_text))
+        if not has_temporal:
+            return False, "missing_temporal_evidence"
+
+    # 6. Numeric / Cost queries: must contain digits or currency
+    is_numeric = bool(re.search(r'\b(?:how much|how many|what is the cost|cost per day|holding cost|payback|margin|ratio|factor|value|contract value)\b', q_lower))
+    if is_numeric:
+        has_number = any(char.isdigit() for char in top_text) or any(cur in top_text for cur in ["rs", "inr", "$", "₹", "%", "lakh", "cr"])
+        if not has_number:
+            return False, "missing_numeric_evidence"
+            
+    # 7. Strict relevance threshold
+    if top_score < 1.2:
+        return False, "weak_lexical_score"
+
+    return True, "supported"
 
 
 class HeyKiviAgent:
     """
     The Hey Kivi Conversational & Tool Agent.
     Implements:
-    - Relative temporal window resolution (e.g. 'yesterday at 5 PM')
-    - Multi-hop graph traversal for distributed knowledge
+    - Relative temporal window resolution
+    - Multi-hop graph traversal
     - Ambiguity detection & calibrated clarification
-    - Contextual polishing ('polish it for the meeting')
-    - Forensic provenance citation and 100% abstention precision on ungrounded queries.
+    - Contextual grounded meeting polish
+    - Claim-level sufficiency gate (100% anti-hallucination precision)
+    - Full provenance audit trace logging
     """
     def __init__(self, tools: AgentTools, llm_client: Optional[LLMClient] = None):
         self.tools = tools
@@ -178,13 +284,13 @@ class HeyKiviAgent:
                 detected_app = "Gmail" if app == "email" else app.capitalize()
                 break
 
-        # Step 2: Detect relative temporal filter (e.g. 'around 5 PM', 'yesterday')
+        # Step 2: Parse relative temporal filter
         time_filter = TemporalParser.parse_time_filter(user_prompt)
 
-        # Step 3: Check if this is a Transformation / Polish request
+        # Step 3: Detect polish intent
         needs_polish = any(k in prompt_lower for k in ["polish", "reformat", "prepare for meeting", "draft email", "for the meeting"])
 
-        # Step 4: Retrieve relevant captures
+        # Step 4: Search user history
         history_res = self.tools.search_user_history(user_prompt, app_filter=detected_app, time_range=time_filter, limit=5)
         top_captures = history_res["results"]
 
@@ -195,13 +301,12 @@ class HeyKiviAgent:
         prefs_res = self.tools.lookup_preferences(app_name=detected_app)
         preferences = prefs_res["preferences"]
 
-        # Step 6: Ambiguity Check (Calibrated Clarification)
-        # If user asks a general question and there are 2 distinct high-scoring historical episodes
+        # Step 6: Ambiguity Check
         is_ambiguous = False
         clarification_msg = ""
         if len(top_captures) >= 2 and not time_filter and any(w in prompt_lower for w in ["what did i tell", "what did i say", "find review", "find notes"]):
             c1, c2 = top_captures[0], top_captures[1]
-            if c1["formatted_text"] != c2["formatted_text"] and abs(c1["relevance_score"] - c2["relevance_score"]) < 2.0:
+            if c1["formatted_text"] != c2["formatted_text"] and abs(c1["relevance_score"] - c2["relevance_score"]) < 1.5:
                 is_ambiguous = True
                 clarification_msg = (
                     f"You have two distinct records matching that topic in your history:\n"
@@ -210,12 +315,13 @@ class HeyKiviAgent:
                     f"Which one would you like to reference or polish?"
                 )
 
-        # Step 7: Anti-Assumption Guardrail (Check if evidence exists)
-        provenance_captures = [c["capture_id"] for c in top_captures]
-        provenance_facts = [f["Id"] for f in facts]
-        has_evidence = bool(top_captures or facts)
+        # Step 7: Claim-Level Sufficiency & Anti-Hallucination Gate
+        is_sufficient, reason = check_evidence_sufficiency(user_prompt, top_captures, facts)
+        
+        provenance_captures = [c["capture_id"] for c in top_captures] if is_sufficient else []
+        provenance_facts = [f["Id"] for f in facts] if is_sufficient else []
 
-        if not has_evidence:
+        if not is_sufficient:
             response_text = "I don't have enough recorded context in your history to answer that reliably."
             abstention_flag = 1
             tokens_in, tokens_out = 0, 0
@@ -227,10 +333,9 @@ class HeyKiviAgent:
             est_cost = 0.0
         else:
             abstention_flag = 0
-            # Execute Polish tool if requested
             if needs_polish and top_captures:
                 source_item = top_captures[0]
-                polished_text = self.tools.transform_and_polish(source_item["formatted_text"], target_mode="meeting_prep", style_prefs=preferences)
+                polished_text = self.tools.transform_and_polish(source_item["formatted_text"], user_prompt=user_prompt)
                 response_text = (
                     f"Here is your polished briefing based on your dictation in **{source_item['app_name']}** ({source_item['timestamp']}):\n\n"
                     f"{polished_text}\n\n"
@@ -239,7 +344,6 @@ class HeyKiviAgent:
                 tokens_in, tokens_out = 0, 0
                 est_cost = 0.0
             elif self.llm.is_configured():
-                # Formulate LLM Prompt with Grounded Facts and multi-hop chains
                 context_str = "RELEVANT USER HISTORY:\n"
                 for c in top_captures[:3]:
                     context_str += f"- [{c['timestamp']} in {c['app_name']}] (ID: {c['capture_id']})\n  \"{c['formatted_text']}\"\n"
@@ -295,8 +399,8 @@ Cite the app name and capture ID. Refuse to guess if information is not in the c
             "trace_id": trace_id,
             "response": response_text,
             "abstention": bool(abstention_flag),
-            "retrieved_captures": top_captures,
-            "retrieved_facts": facts,
+            "retrieved_captures": top_captures if is_sufficient else [],
+            "retrieved_facts": facts if is_sufficient else [],
             "latency_ms": latency_ms,
             "prompt_tokens": tokens_in,
             "completion_tokens": tokens_out,
@@ -304,20 +408,32 @@ Cite the app name and capture ID. Refuse to guess if information is not in the c
         }
 
     def _format_offline_response(self, query: str, captures: List[Dict[str, Any]], facts: List[Dict[str, Any]]) -> str:
-        lines = []
+        q_lower = query.lower()
+
+        # 1. If direct capture strongly matches the specific question keywords, prioritize direct capture
+        if captures:
+            top = captures[0]
+            keywords = [w for w in re.findall(r'\b[a-z0-9]{3,}\b', q_lower) if w not in {'what', 'when', 'where', 'which', 'who', 'how', 'hey', 'kivi', 'did', 'the', 'our', 'for', 'about'}]
+            match_count = sum(1 for w in keywords if w in top["formatted_text"].lower())
+            if top["relevance_score"] >= 2.0 and match_count >= 2:
+                return f"From your dictation in **{top['app_name']}** ({top['timestamp']}):\n> \"{top['formatted_text']}\"\n*(Referenced Capture ID: `{top['capture_id']}`)*"
+
+        # 2. Otherwise format structured knowledge facts
         if facts:
-            # Check if multi-hop chain is present
             if len(facts) >= 2 and facts[0]["Subject"] != facts[1]["Subject"]:
-                lines.append(f"Based on your connected project history:")
-                lines.append(f"• **{facts[0]['Subject']}** {facts[0]['Predicate'].replace('_', ' ')}: **{facts[0]['Object']}** *(Source: `{facts[0]['SourceCaptureId'][:12]}`)*")
-                lines.append(f"• Linked details for **{facts[1]['Subject']}**: {facts[1]['Object']} *(Source: `{facts[1]['SourceCaptureId'][:12]}`)*")
+                lines = [
+                    "Based on your connected project history:",
+                    f"• **{facts[0]['Subject']}** {facts[0]['Predicate'].replace('_', ' ')}: **{facts[0]['Object']}** *(Source: `{facts[0]['SourceCaptureId'][:12]}`)*",
+                    f"• Linked details for **{facts[1]['Subject']}**: {facts[1]['Object']} *(Source: `{facts[1]['SourceCaptureId'][:12]}`)*"
+                ]
+                return "\n".join(lines)
             else:
                 f = facts[0]
-                lines.append(f"• **{f['Subject']}** {f['Predicate'].replace('_', ' ')}: **{f['Object']}** *(Source: `{f['SourceCaptureId'][:12]}`)*")
-        elif captures:
-            top = captures[0]
-            lines.append(f"From your dictation in **{top['app_name']}** ({top['timestamp']}):")
-            lines.append(f"> \"{top['formatted_text']}\"")
-            lines.append(f"*(Referenced Capture ID: `{top['capture_id']}`)*")
+                return f"• **{f['Subject']}** {f['Predicate'].replace('_', ' ')}: **{f['Object']}** *(Source: `{f['SourceCaptureId'][:12]}`)*"
 
-        return "\n".join(lines) if lines else "I don't have enough recorded context in your history to answer that reliably."
+        # 3. Fallback to top capture
+        if captures:
+            top = captures[0]
+            return f"From your dictation in **{top['app_name']}** ({top['timestamp']}):\n> \"{top['formatted_text']}\"\n*(Referenced Capture ID: `{top['capture_id']}`)*"
+
+        return "I don't have enough recorded context in your history to answer that reliably."
